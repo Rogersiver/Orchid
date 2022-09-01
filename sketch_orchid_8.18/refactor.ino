@@ -12,22 +12,43 @@ Bounce bouncer[30] = Bounce();
 
 int buttonState[30] = {0};
 int prevButtonState[30] = {0};
-
 int entanglements[12] = {0};
 
 int pinStart = 2;
 int pinCount = 30;
 int dualCount = 24;
 int multiCount = 12;
+int metaPin = 30;
 int eggCount = 6;
 
 int counter = 0;
 int prevCounter = 0;
+
 int layer[] = {2, 4, 8, 12, 18, 24}; // 24 is for party mode
 int audMidiNotes[5] = {0, 1, 2, 3, 4}
 
+//Timers for actions with delays
 long layerTimer[6] = {0};
 long lastRandomize = millis();
+
+
+//Helper Functions
+void on(int note, int chan){
+    MIDI.sendNoteOn(note, 120, chan);
+  };
+
+void off(int note, int chan){
+    MIDI.sendNoteOff(note, 0, chan);
+  };
+
+void onOff(int note, int chan){
+    MIDI.sendNoteOn(note, 120, chan);
+    MIDI.sendNoteOff(note, 0, chan);I
+  };
+
+bool changed(int i){
+    return buttonState[i] != prevButtonState[i];
+  }
 
 void handleState()
 {
@@ -46,28 +67,23 @@ void handleCounter()
 {
     // update counter and prev counter
     for (int i = 0; i < 24; i++)
-    {//if the buttons pressed
-        if (buttonState[i] == HIGH)
+        if (changed(i))
         {
-            prevCounter = counter;
             counter++;
         }
-        else
+        else if (counter != 0)
         {
-            prevCounter = counter;
-            if (counter != 0)
-            {
-                counter--;
-            }
+            counter--;
         }
     }
-    // if it changed send corresponding midi notes
+    // if it changed update prevCounter and send corresponding midi_notes
     if (counter != prevCounter)
     {
+        prevCounter = counter;
         //loop through layers
         for (int i = 0; i < 6; i++)
         {
-            //if our counter is on a specific threshold
+            //if our counter has met a specific threshold
             if (counter == layer[i])
             {
                 //and its going up
@@ -77,7 +93,7 @@ void handleCounter()
                     MIDI.sendNoteOff(audStart + audMidiNotes[i], 120, audChan);
                 }
                 else
-                {//if its an on message we are deferring it.
+                {//if its an off message we are deferring it.
                     layerTimer[i] = millis();
                 }
             }
@@ -88,28 +104,41 @@ void handleCounter()
     {
         if (layerTimer[i] != 0 && millis() - layerTimer[i] >= counterInterval)
         {
-            MIDI.sendNoteOn((i + audStart + layerCount), 120, audChan);
-            MIDI.sendNoteOff((i + audStart + layerCount), 0, audChan);
+            onOff((i + audStart + layerCount), audChan);
             //set it back to 0 so this wont constantly fire
             layerTimer[i] = 0;
         }
     }
 }
 
+void handleMeta()
+{
+    if(buttonState[metaPin] == HIGH){
+        // Special states in here. 
+      }
+}
+
+
 void handleEntanglement()
 {
-    //get 
-    for (int i = 0; i <= 24; i++)
+    //get corresponding value [1, 12], [2, 13], [3, 14], [14, 3]...
+    // if buttonState changed
+    //check that they are both high and add to entanglements array
+    for (int i = 0; i < 24; i++)
     {
+      if(changed[i])
+      {
         if (i < 12)
         {
             if (buttonState[i] == HIGH && buttonState[i + 12] == HIGH)
             {
                 entanglements[i] = 1;
+                on(i + litStart, litChan);
             }
             else
             {
                 entanglements[i] = 0;
+                off(i + litStart, litChan);
             }
         }
         if (i >= 12)
@@ -117,20 +146,23 @@ void handleEntanglement()
             if (buttonState[i] == HIGH && buttonState[i - 12] == HIGH)
             {
                 entanglements[i - 12] = 1;
+                on(i - 12 + litStart, litChan);
             }
             else
             {
                 entanglements[i - 12] = 0;
+                off(i - 12 + litStart, litChan);
             }
         }
+      }
     }
 }
 
-void handleLighting()
+void sendLighting()
 {
     for (int i = 0; i <= 24; i++)
     {
-        if (buttonState[i] != prevButtonState[i])
+        if (changed[i])
         {
             if (buttonState[i] == HIGH)
             {
@@ -145,19 +177,17 @@ void handleLighting()
     handleEntanglement();
 }
 
-void randomize()
+void randomizeAudioNotes()
 {
     if (millis() - lastRandomize > randomizeInterval)
     {
         randomSeed(analogRead(0));
         lastRandomize = millis();
-
-        // for (int i = 0; i < layerCount; i++)
-        // {
-        //     MIDI.sendNoteOn((i + audStart + layerCount), 120, audChan);
-        //     MIDI.sendNoteOff((i + audStart + layerCount), 0, audChan);
-        // }
-        // randomVar = true;
+//reset all midi notes
+        for (int i = 0; i < layerCount; i++)
+        {
+            onOff((i + audStart + layerCount), audChan);
+       }
 
         for (int i = 0; i < layerCount - 1; i++)
         {
@@ -172,6 +202,7 @@ void randomize()
 void setup()
 {
     MIDI.begin(MIDI_CHANNEL_OMNI);
+    //initialize global variables so counter starts @ correct value
     for (int i = 0; i < pinCount; i++)
     {
         pinMode(i + pinStart, INPUT);
@@ -187,7 +218,10 @@ void setup()
 
 void loop()
 {
-    handleState();
-    handleLighting();
+    updateState();
+    handleMeta();
     handleCounter();
+    handleParty();
+    sendLighting();
+    sendAudio();
 }
